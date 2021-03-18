@@ -18,7 +18,10 @@ def get_conditional_bins(x: np.ndarray, prob: List[float], col_id: int, row_id: 
         for i in range(1, len(bins)):
             bmaxs[row_id, col_id] = bins[i]
             bmins[row_id, col_id] = bins[i-1]
-            new_x = x[(bins[i-1] <= x[:, col_id]) & (x[:, col_id] <= bins[i]), :]
+            if i == len(bins)-1 or bins[i-1] == bins[i]:
+                new_x = x[(bins[i-1] <= x[:, col_id]) & (x[:, col_id] <= bins[i]), :]
+            else:
+                new_x = x[(bins[i-1] <= x[:, col_id]) & (x[:, col_id] < bins[i]), :]
             bmaxs, bmins, row_id = get_conditional_bins(new_x, prob, col_id + 1, row_id,
                                                         bmaxs, bmins)
             if row_id < bmins.shape[0]:
