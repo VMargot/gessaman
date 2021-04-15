@@ -9,9 +9,11 @@ if __name__ == '__main__':
     g.fit(X, y)
     pred = g.predict(X)
     print('Boston: ', r2_score(y, pred))
+    # Boston:  0.37748412469794135
 
     X, y = load_diabetes(return_X_y=True)
     g = Gessaman()
     g.fit(X, y)
     pred = g.predict(X)
     print('Diabetes: ', r2_score(y, pred))
+    # Diabetes:  0.444621563690068

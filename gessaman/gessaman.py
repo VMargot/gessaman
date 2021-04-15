@@ -1,8 +1,9 @@
 from typing import List, Union
 import numpy as np
 from scipy.stats.mstats import mquantiles
-from rule.hyperrectanglecondition import HyperrectangleCondition
-from rule.rule import Rule
+from ruleskit import HyperrectangleCondition
+from ruleskit import Rule
+from ruleskit import RuleSet
 
 
 def update_index(index):
@@ -43,7 +44,7 @@ class Gessaman:
         self._bmaxs = None
         self._bmins = None
         self._features_index = None
-        self._rules = None
+        self._ruleset = None
         pass
 
     @property
@@ -75,8 +76,8 @@ class Gessaman:
         return self._features_index
 
     @property
-    def rules(self) -> List:
-        return self._rules
+    def ruleset(self) -> List:
+        return self._ruleset
 
     @k.setter
     def k(self, value: int):
@@ -106,9 +107,9 @@ class Gessaman:
     def features_index(self, value: List):
         self._features_index = value
 
-    @rules.setter
-    def rules(self, value: List):
-        self._rules = value
+    @ruleset.setter
+    def ruleset(self, value: List):
+        self._ruleset = value
 
     @staticmethod
     def get_dim_max(nb_cells: int, d: int) -> int:
@@ -172,7 +173,7 @@ class Gessaman:
             rule.fit(x, y)
             rules_list.append(rule)
 
-        return rules_list
+        return RuleSet(rules_list)
 
     def fit(self, x: np.ndarray, y: np.ndarray):
         if x.shape[0] != y.shape[0]:
@@ -185,13 +186,13 @@ class Gessaman:
         self.nb_cells = np.ceil(self.n / self.k)
 
         self.bmaxs, self.bins, self.features_index = self.partition_space(x, self.k)
-        self.rules = self.get_rules(x, y)
+        self.ruleset = self.get_rules(x, y)
 
     def predict(self, x: np.ndarray) -> np.ndarray:
-        if self.rules is None:
+        if self.ruleset is None:
             raise ValueError('The model is not fitted.')
         if x.shape[1] != self.d:
             raise ValueError('The dimension of x is different than the training set.')
-        pred_list = [rule.predict(x) for rule in self.rules]
+        pred_list = [rule.predict(x) for rule in self.ruleset]
         nb_activated_rules = np.sum([p.astype('bool') for p in pred_list], axis=0)
         return np.sum(pred_list, axis=0) / nb_activated_rules
