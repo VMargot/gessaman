@@ -4,11 +4,16 @@ from itertools import permutations
 import operator
 import numpy as np
 from scipy.stats.mstats import mquantiles
+from joblib import Parallel, delayed
 
 from ruleskit import RuleSet
 from ruleskit import RegressionRule
 from ruleskit import Activation
 from ruleskit import HyperrectangleCondition
+
+
+def eval_activation(rule, xs):
+    return rule.evaluate(xs).raw
 
 
 def inter_variance(rs: Union[RuleSet, List[RegressionRule]]):
@@ -27,12 +32,15 @@ def conditional_mean(activation: Union[np.ndarray, None], y: np.ndarray) -> floa
     """
     if activation is None:
         return float(np.nanmean(y))
-
-    if isinstance(activation, np.ndarray):
-        y_conditional = np.extract(activation, y)
+    if sum(activation) > 0:
+        if isinstance(activation, np.ndarray):
+            y_conditional = np.extract(activation, y)
+        else:
+            raise TypeError("'activation' in conditional_mean must be None or a np.ndarray")
+        if len(y_conditional) > 0:
+            return float(np.nanmean(y_conditional))
     else:
-        raise TypeError("'activation' in conditional_mean must be None or a np.ndarray")
-    return float(np.nanmean(y_conditional))
+        return 0.0
 
 
 def get_permutation_list(seq: List, k: int) -> List[Tuple]:
@@ -300,23 +308,19 @@ def select(rs: RuleSet, gamma: float, selected_rs: RuleSet = None) -> (int, Rule
     return rg_add, selected_rs
 
 
-def predict(
-    rs: RuleSet, xs: np.ndarray, y_train: np.ndarray
-) -> (np.ndarray, np.ndarray):
+def predict(rs: RuleSet, xs: np.ndarray, y_train: np.ndarray, nb_jobs: int = 2) -> (np.ndarray, np.ndarray):
     max_func = np.vectorize(max)
     significant_rules = list(filter(lambda rule: rule.significant, rs))
     insignificant_rules = list(filter(lambda rule: rule.significant is False, rs))
 
     if len(significant_rules) > 0:
         # noinspection PyProtectedMember
-        significant_union = reduce(
-            operator.add, [rule._activation for rule in significant_rules]
-        ).raw
+        significant_union = reduce(operator.add, [rule._activation for rule in significant_rules]).raw
 
         significant_act_matrix = [rule.activation for rule in significant_rules]
         significant_act_matrix = np.array(significant_act_matrix)
-
-        significant_pred_matrix = [rule.evaluate(xs).raw for rule in significant_rules]
+        significant_pred_matrix = Parallel(n_jobs=nb_jobs, backend="multiprocessing")(
+            delayed(eval_activation)(rule, xs)for rule in significant_rules)
         significant_pred_matrix = np.array(significant_pred_matrix).T
 
         no_activation_matrix = np.logical_not(significant_pred_matrix)
@@ -330,19 +334,12 @@ def predict(
 
         # Activation of the intersection of all activated rules at each row
         dot_activation = np.dot(significant_pred_matrix, significant_act_matrix)
-        dot_activation = np.array(
-            [
-                np.equal(act, nb_rules)
-                for act, nb_rules in zip(dot_activation, nb_rules_active)
-            ],
-            dtype="int",
-        )
+        dot_activation = np.array([np.equal(act, nb_rules) for act, nb_rules in zip(dot_activation, nb_rules_active)],
+                                  dtype="int")
 
         # Calculation of the binary vector for cells of the partition et each row
         significant_cells = (dot_activation - no_activation_vector) > 0
-        no_prediction_points = (significant_cells.sum(axis=1) == 0) & (
-            significant_pred_matrix.sum(axis=1) != 0
-        )
+        no_prediction_points = (significant_cells.sum(axis=1) == 0) & (significant_pred_matrix.sum(axis=1) != 0)
 
     else:
         significant_cells = np.zeros(shape=(xs.shape[0], len(y_train)), dtype="bool")
@@ -356,9 +353,8 @@ def predict(
         insignificant_act_matrix -= significant_union
         insignificant_act_matrix = max_func(insignificant_act_matrix, 0)
 
-        insignificant_pred_matrix = [
-            rule.evaluate(xs).raw for rule in insignificant_rules
-        ]
+        insignificant_pred_matrix = Parallel(n_jobs=nb_jobs, backend="multiprocessing")(
+            delayed(eval_activation)(rule, xs) for rule in insignificant_rules)
         insignificant_pred_matrix = np.array(insignificant_pred_matrix).T
 
         no_activation_matrix = np.logical_not(insignificant_pred_matrix)
@@ -372,13 +368,8 @@ def predict(
 
         # Activation of the intersection of all activated rules at each row
         dot_activation = np.dot(insignificant_pred_matrix, insignificant_act_matrix)
-        dot_activation = np.array(
-            [
-                np.equal(act, nb_rules)
-                for act, nb_rules in zip(dot_activation, nb_rules_active)
-            ],
-            dtype="int",
-        )
+        dot_activation = np.array([np.equal(act, nb_rules) for act, nb_rules in zip(dot_activation, nb_rules_active)],
+                                  dtype="int",)
 
         # Calculation of the binary vector for cells of the partition et each row
         insignificant_cells = (dot_activation - no_activation_vector) > 0
@@ -391,9 +382,8 @@ def predict(
 
     # Calculation of the conditional expectation in each cell
     cells = insignificant_cells ^ significant_cells
-    prediction_vector = [
-        conditional_mean(act, y_train) if sum(act) > 0 else 0.0 for act in cells
-    ]
+    prediction_vector = Parallel(n_jobs=nb_jobs, backend="multiprocessing")(
+        delayed(conditional_mean)(act, y_train) for act in cells)
     prediction_vector = np.array(prediction_vector)
     prediction_vector[no_prediction_points] = np.nan
     prediction_vector[prediction_vector == 0] = no_rule_prediction

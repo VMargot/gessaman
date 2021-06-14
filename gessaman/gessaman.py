@@ -1,6 +1,7 @@
 from typing import List, Union, Tuple
 from functools import reduce
 import operator
+from os import cpu_count
 import numpy as np
 from joblib import Parallel, delayed
 from ruleskit import RuleSet
@@ -10,13 +11,17 @@ from .utils import futils as f
 class Gessaman:
     """ """
 
-    def __init__(self, gamma: float = 0.8):
+    def __init__(self, gamma: float = 0.8, nb_jobs: int = -1):
         self._n = None
         self._d = None
         self._beta = None
         self._epsilon = None
         self._sigma2 = None
         self._gamma = gamma
+        if nb_jobs == -1 or nb_jobs > cpu_count():
+            self._nbjobs = cpu_count()
+        else:
+            self._nbjobs = nb_jobs
         self._nb_cells = None
         self._nb_dims = None
         self._ruleset = RuleSet([])
@@ -141,9 +146,7 @@ class Gessaman:
     #     bins = np.vstack((x[:, col].min(axis=0), bins, x[:, col].max(axis=0)))
     #     return bins
 
-    def get_rules(
-        self, x: np.ndarray, y: np.ndarray, nb_dims: int, rs: RuleSet
-    ) -> RuleSet:
+    def get_rules(self, x: np.ndarray, y: np.ndarray, nb_dims: int, rs: RuleSet) -> RuleSet:
         feats = list(range(self.d))
         nb_cells = self.nb_cells
         if nb_dims == 1:
@@ -151,7 +154,7 @@ class Gessaman:
         else:
             features_index_list = f.get_permutation_list(feats, nb_dims)
 
-        rep = Parallel(n_jobs=2, backend="multiprocessing")(
+        rep = Parallel(n_jobs=self._nbjobs, backend="multiprocessing")(
             delayed(f.get_partition_rs)(x, y, nb_dims, nb_cells, features_index)
             for features_index in features_index_list
         )
@@ -209,18 +212,11 @@ class Gessaman:
         print("Number of rules: %s" % str(len(rs)))
 
         # Selection of significant rules
-        significant_rules = list(
-            filter(lambda rule: f.significant_test(rule, ymean, sigma2, beta), rs)
-        )
+        significant_rules = list(filter(lambda rule: f.significant_test(rule, ymean, sigma2, beta), rs))
         if len(significant_rules) > 0:
             [setattr(rule, "significant", True) for rule in significant_rules]
-            print(
-                "Number of rules after significant test: %s"
-                % str(len(significant_rules))
-            )
-            sorted_significant = sorted(
-                significant_rules, key=lambda x: x.coverage, reverse=True
-            )
+            print(f"Number of rules after significant test: {len(significant_rules)}")
+            sorted_significant = sorted(significant_rules, key=lambda x: x.coverage, reverse=True)
             significant_rs = RuleSet(list(sorted_significant))
 
             rg_add, selected_rs = f.select(significant_rs, gamma)
@@ -231,22 +227,12 @@ class Gessaman:
 
         # Add insignificant rules to the current selection set of rules
         if selected_rs is None or selected_rs.calc_coverage_rate() < 1:
-            insignificant_list = filter(
-                lambda rule: f.insignificant_test(rule, sigma2, epsilon), rs
-            )
-            insignificant_list = list(
-                filter(lambda rule: rule not in significant_rules, insignificant_list)
-            )
+            insignificant_list = filter(lambda rule: f.insignificant_test(rule, sigma2, epsilon), rs)
+            insignificant_list = list(filter(lambda rule: rule not in significant_rules, insignificant_list))
             if len(list(insignificant_list)) > 0:
                 [setattr(rule, "significant", False) for rule in insignificant_list]
-                print(
-                    "Number rules after insignificant test: %s"
-                    % str(len(insignificant_list))
-                )
-
-                insignificant_list = sorted(
-                    insignificant_list, key=lambda x: x.std, reverse=False
-                )
+                print(f"Number rules after insignificant test: {len(insignificant_list)}")
+                insignificant_list = sorted(insignificant_list, key=lambda x: x.std, reverse=False)
                 insignificant_rs = RuleSet(list(insignificant_list))
                 rg_add, selected_rs = f.select(insignificant_rs, gamma, selected_rs)
                 print("Number insignificant rules added: %s" % str(rg_add))
@@ -304,10 +290,8 @@ class Gessaman:
         """
         selected_rs = self.selected_rs
 
-        prediction_vector, no_predictions = f.predict(selected_rs, xs, y_train)
-        print(
-            f"There are {round(sum(no_predictions) / xs.shape[0] * 100, 2)}% of observations without prediction."
-        )
+        prediction_vector, no_predictions = f.predict(selected_rs, xs, y_train, nb_jobs=self._nbjobs)
+        print(f"There are {round(sum(no_predictions) / xs.shape[0] * 100, 2)}% of observations without prediction.")
         return prediction_vector, no_predictions
 
     # def predict(self, x: np.ndarray) -> np.ndarray:
