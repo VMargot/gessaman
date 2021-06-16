@@ -6,12 +6,14 @@ import numpy as np
 from joblib import Parallel, delayed
 from ruleskit import RuleSet
 from .utils import futils as f
+from .utils.cell import BaseCell
 
 
 class Gessaman:
     """ """
 
     def __init__(self, gamma: float = 0.8, nb_jobs: int = -1):
+        BaseCell.instances = []
         self._n = None
         self._d = None
         self._beta = None
@@ -156,8 +158,7 @@ class Gessaman:
 
         rep = Parallel(n_jobs=self._nbjobs, backend="multiprocessing")(
             delayed(f.get_partition_rs)(x, y, nb_dims, nb_cells, features_index)
-            for features_index in features_index_list
-        )
+            for features_index in features_index_list)
 
         self.partition_bvar += [r[1] for r in rep]
         rs += reduce(operator.add, [r[0] for r in rep])
@@ -186,6 +187,7 @@ class Gessaman:
         print("----- Design rules ------")
         for lg in range(1, self.nb_dims + 1):
             self.ruleset = self.get_rules(x, y, lg, self.ruleset)
+        print(f"Number of rules: {len(self.ruleset)}")
 
         # --------------
         # SELECTION PART
@@ -209,7 +211,6 @@ class Gessaman:
         sigma2 = self.sigma2
         gamma = self.gamma
         rs = self.ruleset
-        print("Number of rules: %s" % str(len(rs)))
 
         # Selection of significant rules
         significant_rules = list(filter(lambda rule: f.significant_test(rule, ymean, sigma2, beta), rs))
@@ -220,7 +221,7 @@ class Gessaman:
             significant_rs = RuleSet(list(sorted_significant))
 
             rg_add, selected_rs = f.select(significant_rs, gamma)
-            print("Number of selected significant rules: %s" % str(rg_add))
+            print(f"Number of selected significant rules: {rg_add}")
 
         else:
             print("No significant rules selected!")
@@ -235,7 +236,7 @@ class Gessaman:
                 insignificant_list = sorted(insignificant_list, key=lambda x: x.std, reverse=False)
                 insignificant_rs = RuleSet(list(insignificant_list))
                 rg_add, selected_rs = f.select(insignificant_rs, gamma, selected_rs)
-                print("Number insignificant rules added: %s" % str(rg_add))
+                print(f"Number insignificant rules added: {rg_add}")
             else:
                 print("No insignificant rule added.")
         else:

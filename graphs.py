@@ -48,7 +48,7 @@ def circle_data(X, noise):
     return X, y
 
 
-h = 0.02  # step size in the mesh
+h = 0.1  # step size in the mesh
 n_samples = 1000
 noise = 0.5
 
