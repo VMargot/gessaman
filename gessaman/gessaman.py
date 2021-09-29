@@ -1,3 +1,4 @@
+import copy
 from typing import List, Union, Tuple
 from functools import reduce
 import operator
@@ -12,18 +13,23 @@ from .utils.cell import BaseCell
 class Gessaman:
     """ """
 
-    def __init__(self, gamma: float = 0.8, nb_jobs: int = -1):
+    def __init__(self, alpha: Union[float, None] = None, gamma: float = 0.8, nb_jobs: int = -1, verbose: bool = True):
         BaseCell.instances = []
+        self.verbose = verbose
+
         self._n = None
         self._d = None
         self._beta = None
         self._epsilon = None
         self._sigma2 = None
+
+        self._alpha = alpha
         self._gamma = gamma
         if nb_jobs == -1 or nb_jobs > cpu_count():
             self._nbjobs = cpu_count()
         else:
             self._nbjobs = nb_jobs
+
         self._nb_cells = None
         self._nb_dims = None
         self._ruleset = RuleSet([])
@@ -55,6 +61,10 @@ class Gessaman:
         return self._gamma
 
     @property
+    def alpha(self) -> Union[float, None]:
+        return self._alpha
+
+    @property
     def sigma2(self) -> float:
         return self._sigma2
 
@@ -71,7 +81,7 @@ class Gessaman:
         return self._selected_rs
 
     @property
-    def partition_bvar(self) -> List[Tuple]:
+    def partition_bvar(self) -> List[List]:
         return self._partition_bvar
 
     @n.setter
@@ -94,6 +104,10 @@ class Gessaman:
     def gamma(self, value: float):
         self._gamma = value
 
+    @alpha.setter
+    def alpha(self, value: float):
+        self._alpha = value
+
     @sigma2.setter
     def sigma2(self, value: float):
         self._sigma2 = value
@@ -115,7 +129,7 @@ class Gessaman:
         self._selected_rs = value
 
     @partition_bvar.setter
-    def partition_bvar(self, value: List[Tuple]):
+    def partition_bvar(self, value: List[List]):
         self._partition_bvar = value
 
     @staticmethod
@@ -180,25 +194,30 @@ class Gessaman:
         if x.shape[0] != y.shape[0]:
             raise ValueError("x and y must have the same number of observations.")
         self.n, self.d = x.shape
-        alpha = (3 * self.d + 1) / (6 * (self.d + 1))
-        self.nb_cells = int(pow(self.n, alpha))
+        if self.alpha is None:
+            self.alpha = (3 * self.d + 1) / (6 * (self.d + 1))
+
+        self.nb_cells = int(self.n ** self.alpha)
         self.nb_dims = min(self.d, int(np.log(self.n) / (2 * np.log(2)) - 1))
 
-        print("----- Design rules ------")
+        if self.verbose:
+            print("----- Design rules ------")
         for lg in range(1, self.nb_dims + 1):
             self.ruleset = self.get_rules(x, y, lg, self.ruleset)
-        print(f"Number of rules: {len(self.ruleset)}")
+        if self.verbose:
+            print(f"Number of rules: {len(self.ruleset)}")
 
         # --------------
         # SELECTION PART
         # --------------
-        print("----- Selection ------")
-        self.beta = 1.0 / pow(self.d, 1.0 / 4 - alpha / 2.0)
+        if self.verbose:
+            print("----- Selection ------")
+        self.beta = 1.0 / pow(self.d, 1.0 / 4 - self.alpha / 2.0)
         self.epsilon = self.beta * np.std(y)
         if self.sigma2 is None:
             self.sigma2 = min([rule.std ** 2 for rule in self.ruleset])
 
-        self.selected_rs = self.select_rules(y.mean())
+        self.selected_rs, self.selected_significant_rs, self.selected_insignificant_rs = self.select_rules(y.mean())
 
     def select_rules(self, ymean: float):
         """
@@ -215,37 +234,50 @@ class Gessaman:
         # Selection of significant rules
         significant_rules = list(filter(lambda rule: f.significant_test(rule, ymean, sigma2, beta), rs))
         if len(significant_rules) > 0:
-            [setattr(rule, "significant", True) for rule in significant_rules]
-            print(f"Number of rules after significant test: {len(significant_rules)}")
+            # [setattr(rule, "significant", True) for rule in significant_rules]
+            if self.verbose:
+                print(f"Number of rules after significant test: {len(significant_rules)}")
             sorted_significant = sorted(significant_rules, key=lambda x: x.coverage, reverse=True)
             significant_rs = RuleSet(list(sorted_significant))
 
             rg_add, selected_rs = f.select(significant_rs, gamma)
-            print(f"Number of selected significant rules: {rg_add}")
+            selected_significant_rs = copy.copy(selected_rs)
+            if self.verbose:
+                print(f"Number of selected significant rules: {rg_add}")
 
         else:
-            print("No significant rules selected!")
+            if self.verbose:
+                print("No significant rules selected!")
 
         # Add insignificant rules to the current selection set of rules
-        if selected_rs is None or selected_rs.calc_coverage_rate() < 1:
+        if selected_rs is None or selected_rs.coverage < 1:
             insignificant_list = filter(lambda rule: f.insignificant_test(rule, sigma2, epsilon), rs)
             insignificant_list = list(filter(lambda rule: rule not in significant_rules, insignificant_list))
             if len(list(insignificant_list)) > 0:
-                [setattr(rule, "significant", False) for rule in insignificant_list]
-                print(f"Number rules after insignificant test: {len(insignificant_list)}")
+                # [setattr(rule, "significant", False) for rule in insignificant_list]
+                if self.verbose:
+                    print(f"Number rules after insignificant test: {len(insignificant_list)}")
                 insignificant_list = sorted(insignificant_list, key=lambda x: x.std, reverse=False)
                 insignificant_rs = RuleSet(list(insignificant_list))
                 rg_add, selected_rs = f.select(insignificant_rs, gamma, selected_rs)
-                print(f"Number insignificant rules added: {rg_add}")
+                insignificant_rules = filter(lambda rl: rl not in selected_significant_rs, selected_rs)
+                selected_insignificant_rs = RuleSet(list(insignificant_rules))
+                if self.verbose:
+                    print(f"Number insignificant rules added: {rg_add}")
             else:
-                print("No insignificant rule added.")
+                selected_insignificant_rs = RuleSet([])
+                if self.verbose:
+                    print("No insignificant rule added.")
         else:
-            print("Covering is completed. No insignificant rule added.")
+            selected_insignificant_rs = RuleSet([])
+            if self.verbose:
+                print("Covering is completed. No insignificant rule added.")
 
         # Add rule to have a covering
-        coverage_rate = selected_rs.calc_coverage_rate()
+        coverage_rate = selected_rs.coverage
         if coverage_rate < 1:
-            print("Warning: Covering is not completed!", coverage_rate)
+            if self.verbose:
+                print("Warning: Covering is not completed!", coverage_rate)
             # neg_rule, pos_rule = add_no_rule(selected_rs, x_train, y_train)
             # features_name = self.get_param('features_name')
             #
@@ -265,9 +297,10 @@ class Gessaman:
             #     print('Add positive no-rule  %s.' % str(pos_rule))
             #     selected_rs.append(pos_rule)
         else:
-            print("Covering is completed.")
+            if self.verbose:
+                print("Covering is completed.")
 
-        return selected_rs
+        return selected_rs, selected_significant_rs, selected_insignificant_rs
 
     def predict(self, xs, y_train: np.ndarray) -> (np.ndarray, np.ndarray):
         """
@@ -289,10 +322,13 @@ class Gessaman:
         y : {array type of shape = [n_samples]}
             The predicted values.
         """
-        selected_rs = self.selected_rs
+        selected_significant_rs = self.selected_significant_rs
+        selected_insignificant_rs = self.selected_insignificant_rs
 
-        prediction_vector, no_predictions = f.predict(selected_rs, xs, y_train, nb_jobs=self._nbjobs)
-        print(f"There are {round(sum(no_predictions) / xs.shape[0] * 100, 2)}% of observations without prediction.")
+        prediction_vector, no_predictions = f.predict(selected_significant_rs, selected_insignificant_rs,
+                                                      xs, y_train, nb_jobs=self._nbjobs)
+        if self.verbose:
+            print(f"There are {round(sum(no_predictions) / xs.shape[0] * 100, 2)}% of observations without prediction.")
         return prediction_vector, no_predictions
 
     # def predict(self, x: np.ndarray) -> np.ndarray:

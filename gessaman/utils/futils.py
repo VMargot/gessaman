@@ -49,7 +49,7 @@ def conditional_mean(activation: Union[np.ndarray, None], y: np.ndarray) -> floa
         return 0.0
 
 
-def get_permutation_list(seq: List, k: int) -> List[Tuple]:
+def get_permutation_list(seq: List, k: int) -> List[List]:
     """
     Liste des arrangements des objets de la liste seq pris k à k
     Parameters
@@ -59,13 +59,13 @@ def get_permutation_list(seq: List, k: int) -> List[Tuple]:
 
     Returns
     -------
-    p: List[Tuple]
+    p: List[List]
 
     Example
     -------
     >>> l1 = [1, 2, 3]
     >>> get_permutation_list(l1, 2)
-    [(1, 2), (1, 3), (2, 1), (2, 3), (3, 2)]
+    [[1, 2], [1, 3], [2, 1], [2, 3], [3, 2]]
     """
     p = []
     i, imax = 0, 2 ** len(seq) - 1
@@ -80,7 +80,7 @@ def get_permutation_list(seq: List, k: int) -> List[Tuple]:
             v = permutations(s)
             p.extend(v)
         i += 1
-    return p
+    return [list(pair) for pair in p]
 
 
 def get_pair(rls: List[List], is_identical: bool = False):
@@ -298,11 +298,11 @@ def select(rs: RuleSet, gamma: float, selected_rs: RuleSet = None) -> (int, Rule
     nb_rules = len(rs)
     # old_criterion = calc_ruleset_crit(selected_rs, y_train, x_train, calcmethod)
     # crit_evo.append(old_criterion)
-    while selected_rs.calc_coverage_rate() < 1 and i < nb_rules:
+    while selected_rs.coverage < 1 and i < nb_rules:
         new_rules = rs[i]
         # noinspection PyProtectedMember
         utests = [union_test(new_rules, rule._activation, gamma) for rule in selected_rs]
-        if all(utests) and union_test(new_rules, selected_rs.get_activation(), gamma):
+        if all(utests) and union_test(new_rules, selected_rs._activation, gamma):
             selected_rs += new_rules
             # old_criterion = new_criterion
             rg_add += 1
@@ -312,10 +312,8 @@ def select(rs: RuleSet, gamma: float, selected_rs: RuleSet = None) -> (int, Rule
     return rg_add, selected_rs
 
 
-def predict(rs: RuleSet, xs: np.ndarray, y_train: np.ndarray, nb_jobs: int = 2) -> (np.ndarray, np.ndarray):
+def predict(significant_rules: RuleSet, insignificant_rules: RuleSet, xs: np.ndarray, y_train: np.ndarray, nb_jobs: int = 2) -> (np.ndarray, np.ndarray):
     max_func = np.vectorize(max)
-    significant_rules = list(filter(lambda rule: rule.significant, rs))
-    insignificant_rules = list(filter(lambda rule: rule.significant is False, rs))
 
     if len(significant_rules) > 0:
         # noinspection PyProtectedMember

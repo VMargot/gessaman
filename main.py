@@ -4,6 +4,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
 import numpy as np
 
+from gessaman.utils import nn_estimator
+
 
 def make_y(x, noise, th_min=-0.4, th_max=0.4):
     y_vect = [-2 if x_val <= th_min else 0 if x_val <= th_max else 2 for x_val in x]
@@ -27,19 +29,22 @@ if __name__ == "__main__":
     print("")
     X, y = load_diabetes(return_X_y=True)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-    g = Gessaman(nb_jobs=-1)
+    g = Gessaman(alpha=1/3, nb_jobs=-1)
     g.fit(X_train, y_train)
     pred, bad_points = g.predict(X_test, y_train)
     print("Diabetes % of bad points: ", sum(bad_points) / len(y_test))
     pred = np.nan_to_num(pred)
     print("Diabetes: ", r2_score(y_test, pred))
-    print("Diabetes sigma 2:", min([rule.std ** 2 for rule in g.ruleset]))
+    print("Diabetes EY2:", np.mean(y**2))
+    print("Diabetes sigma 2:", min([rule.std for rule in g.ruleset]))
+    neigh_estimator = nn_estimator.calc_1nn_noise_estimator(X, y)
+    print("Diabetes 1NN sigma 2:", neigh_estimator)
     # Diabetes:  0.2461021538303113
     # Diabetes:  0.3686668958294672
-    # Diabetes sigma 2: 411.55102040816325
+    # Diabetes sigma: 411.55102040816325
 
     print("")
-    nRows = 5000
+    nRows = 10000
     nCols = 2
     noise = 1.0
     h = 0.05
@@ -52,12 +57,15 @@ if __name__ == "__main__":
     y = make_y(x_vect, noise, th_min, th_max)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-    g = Gessaman(nb_jobs=-1)
+    g = Gessaman(alpha=1/3, nb_jobs=-1)
     g.fit(X_train, y_train)
     pred, bad_points = g.predict(X_test, y_train)
     print("Simulation % of bad points: ", sum(bad_points) / len(y_test))
     pred = np.nan_to_num(pred)
     print("Simulation: ", r2_score(y_test, pred))
-    print("Simulation sigma 2:", min([rule.std ** 2 for rule in g.ruleset]))
+    print("Diabetes EY2:", np.mean(y ** 2))
+    print("Simulation sigma 2:", min([rule.std for rule in g.ruleset]))
+    neigh_estimator = nn_estimator.calc_1nn_noise_estimator(X_train, y_train)
+    print("Diabetes 1NN sigma 2:", neigh_estimator)
     # Simulation: 0.6945311888168184
-    # Simulation sigma2: 0.7174451651251278
+    # Simulation sigma: 0.7174451651251278
