@@ -1,5 +1,5 @@
 import copy
-from typing import List, Union, Tuple
+from typing import List, Union
 from functools import reduce
 import operator
 from os import cpu_count
@@ -13,7 +13,8 @@ from .utils.cell import BaseCell
 class Gessaman:
     """ """
 
-    def __init__(self, alpha: Union[float, None] = None, gamma: float = 0.8, nb_jobs: int = -1, verbose: bool = True):
+    def __init__(self, alpha: Union[float, None] = None, k: Union[int, None] = None,
+                 gamma: float = 0.8, nb_jobs: int = -1, verbose: bool = True):
         BaseCell.instances = []
         self.verbose = verbose
 
@@ -25,6 +26,7 @@ class Gessaman:
 
         self._alpha = alpha
         self._gamma = gamma
+        self._k= k
         if nb_jobs == -1 or nb_jobs > cpu_count():
             self._nbjobs = cpu_count()
         else:
@@ -63,6 +65,10 @@ class Gessaman:
     @property
     def alpha(self) -> Union[float, None]:
         return self._alpha
+
+    @property
+    def k(self) -> Union[int, None]:
+        return self._k
 
     @property
     def sigma2(self) -> float:
@@ -107,6 +113,10 @@ class Gessaman:
     @alpha.setter
     def alpha(self, value: float):
         self._alpha = value
+
+    @k.setter
+    def k(self, value: int):
+        self._k = value
 
     @sigma2.setter
     def sigma2(self, value: float):
@@ -165,6 +175,7 @@ class Gessaman:
     def get_rules(self, x: np.ndarray, y: np.ndarray, nb_dims: int, rs: RuleSet) -> RuleSet:
         feats = list(range(self.d))
         nb_cells = self.nb_cells
+        # print('Number of cells of the partition:', nb_cells)
         if nb_dims == 1:
             features_index_list = [[i] for i in feats]
         else:
@@ -172,7 +183,7 @@ class Gessaman:
 
         rep = Parallel(n_jobs=self._nbjobs, backend="multiprocessing")(
             delayed(f.get_partition_rs)(x, y, nb_dims, nb_cells, features_index)
-            for features_index in features_index_list)
+            for features_index in features_index_list)  # tqdm.tqdm(features_index_list))
 
         self.partition_bvar += [r[1] for r in rep]
         rs += reduce(operator.add, [r[0] for r in rep])
@@ -197,8 +208,14 @@ class Gessaman:
         if self.alpha is None:
             self.alpha = (3 * self.d + 1) / (6 * (self.d + 1))
 
-        self.nb_cells = int(self.n ** self.alpha)
+        if self.k is None:
+            self.nb_cells = int(self.n ** self.alpha)
+        else:
+            assert self.k <= self.n, 'The number of points in cells is greater than the number of observation!'
+            self.nb_cells = int(self.n / self.k)
+
         self.nb_dims = min(self.d, int(np.log(self.n) / (2 * np.log(2)) - 1))
+        # self.nb_dims = min(self.d, 2)
 
         if self.verbose:
             print("----- Design rules ------")

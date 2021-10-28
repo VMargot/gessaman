@@ -19,8 +19,13 @@ def calc_1nn_noise_estimator(X, Y):
     sub_y_prime = Y[sub_idx_prime]
     sub_X_prime = X[sub_idx_prime]
 
-    neigh.fit(sub_X, sub_y)
-    s_n = np.mean(neigh.predict(sub_X_prime) * sub_y_prime)
+    if len(X.shape) == 1:
+        neigh.fit(sub_X.reshape(-1, 1), sub_y)
+        s_n = np.mean(neigh.predict(sub_X_prime.reshape(-1, 1)) * sub_y_prime)
+    else:
+        neigh.fit(sub_X, sub_y)
+        s_n = np.mean(neigh.predict(sub_X_prime) * sub_y_prime)
+
     nn_estimator = np.mean(Y ** 2) - s_n
 
     return nn_estimator

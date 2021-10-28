@@ -6,9 +6,11 @@ import numpy as np
 from scipy.stats.mstats import mquantiles
 from joblib import Parallel, delayed
 
-from ruleskit import RuleSet, RegressionRule, Activation
+from ruleskit import Rule, RuleSet, RegressionRule, Activation
 from .cell import Cell
 from ruleskit import HyperrectangleCondition
+
+Rule.LOCAL_ACTIVATION = False
 
 
 def eval_activation(rule, xs):
