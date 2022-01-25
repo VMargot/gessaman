@@ -7,12 +7,12 @@ from matplotlib.patches import Rectangle
 from gessaman.gessaman import Gessaman
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     n = 5000
     noise = 0.05
 
     X = np.array([[1 / n * i] for i in range(0, n)])
-    Y = np.sqrt(X * (1 - X)) * np.sin((2 * math.pi * 1.05) / (X + .05)) + 0.5
+    Y = np.sqrt(X * (1 - X)) * np.sin((2 * math.pi * 1.05) / (X + 0.05)) + 0.5
     Y = Y.flatten()
     Y += np.random.normal(0, noise, n)
 
@@ -30,7 +30,13 @@ if __name__ == '__main__':
         bmax = rule_estimator.condition.bmaxs[0]
         bmax = min(1.0, bmax)
         sigma_estimate.append(min(noise_estimators))
-        rectangle = Rectangle((bmin, np.min(Y)), bmax - bmin, np.max(Y) - np.min(Y), color="red", alpha=0.7)
+        rectangle = Rectangle(
+            (bmin, np.min(Y)),
+            bmax - bmin,
+            np.max(Y) - np.min(Y),
+            color="red",
+            alpha=0.7,
+        )
         rectangles_list.append(rectangle)
 
     fig = plt.figure()
@@ -44,7 +50,9 @@ if __name__ == '__main__':
         ax.clear()
         ax.plot(X, Y)
         ax.add_patch(rectangle)
-        ax.set_title('alpha = ' + str(round(alpha, 2)) + ' & sigma_hat = ' + str(round(sigma, 3)))
+        ax.set_title(
+            "alpha = " + str(round(alpha, 2)) + " & sigma_hat = " + str(round(sigma, 3))
+        )
         fig.canvas.draw()
         time.sleep(0.5)
 

@@ -7,10 +7,20 @@ import matplotlib.pyplot as plt
 from gessaman.gessaman import Gessaman
 from gessaman.utils import nn_estimator
 from sklearn.ensemble import RandomForestRegressor
+from glob import glob
+import os
+import warnings
+
+warnings.filterwarnings("ignore")
+
+
+def del_activation_files():
+    for f in glob("/tmp/*.txt"):
+        os.remove(f)
 
 
 def r2_score(y_test, predictions, y_hat):
-    return 1 - np.mean((predictions - y_test)**2) / np.mean((y_test - y_hat)**2)
+    return 1 - np.mean((predictions - y_test) ** 2) / np.mean((y_test - y_hat) ** 2)
 
 
 def data_sigmoid(nb_row, sigma2):
@@ -81,10 +91,15 @@ def data_circle(nb_cols, nb_row, sigma2):
 
 
 def do_graph(n, noise, step, nb_simu, data_type, d=1):
-    min_points = int(n ** (1 / 2)) + 1
+    # min_points = int(n ** (1 / 2)) + 1
+    min_points = 20
     k_list = list(range(min_points, int(n / 2), int(n * step)))
-    sigma2_ratio_df = pd.DataFrame(index=list(range(nb_simu)), columns=k_list)
+    sigma2_ratio_g_df = pd.DataFrame(index=list(range(nb_simu)), columns=k_list)
     nn_estimator_list = []
+    sigma2_ratio_df = pd.DataFrame(
+        index=list(range(nb_simu * len(k_list) * 3)),
+        columns=["% of points", "Sigma2 ratio", "Type"],
+    )
     r2_scores = pd.DataFrame(
         index=list(range(nb_simu * len(k_list) * 2)),
         columns=["% of points", "R2-score", "Algorithm"],
@@ -92,6 +107,7 @@ def do_graph(n, noise, step, nb_simu, data_type, d=1):
 
     title = f"Points sensitivity for {data_type} dataset with sigma2={noise}, n={n} and for {nb_simu} simulations"
     j = 0
+    l = 0
     for i in tqdm.tqdm(range(nb_simu)):
         if data_type == "sigmoid":
             x, y = data_sigmoid(n, noise)
@@ -106,13 +122,22 @@ def do_graph(n, noise, step, nb_simu, data_type, d=1):
         else:
             raise "Not implemented data_type"
 
-        sigma2_estimate = []
+        sigma2_estimates = []
         ymean = np.mean(y)
+
+        neigh_estimator = nn_estimator.calc_1nn_noise_estimator(x, y)
+        nn_estimator_list.append(neigh_estimator)
+
         for k in k_list:
             g = Gessaman(k=k, nb_jobs=4, verbose=False)
             g.fit(x, y)
             noise_estimators = [rule.std ** 2 for rule in g.ruleset]
-            sigma2_estimate.append(min(noise_estimators))
+            gessaman_estimate = min(noise_estimators)
+            sigma2_estimator = min(noise_estimators)
+            sigma2_estimates.append(sigma2_estimator)
+
+            nn_estimate = min([rule._nn_estimate for rule in g.ruleset])
+            # nn_estimates.append(nn_estimate)
 
             regr = RandomForestRegressor(min_samples_leaf=k)
             regr.fit(x, y)
@@ -142,10 +167,23 @@ def do_graph(n, noise, step, nb_simu, data_type, d=1):
             r2_scores.iloc[j]["Algorithm"] = "RF"
             j += 1
 
-        neigh_estimator = nn_estimator.calc_1nn_noise_estimator(x, y)
-        nn_estimator_list.append(neigh_estimator)
-        sigma2_ratio = [s / noise - 1 for s in sigma2_estimate]
-        sigma2_ratio_df.iloc[i] = sigma2_ratio
+            sigma2_ratio_df.iloc[l]["Sigma2 ratio"] = nn_estimate / noise - 1
+            sigma2_ratio_df.iloc[l]["% of points"] = round(k / n * 100, 2)
+            sigma2_ratio_df.iloc[l]["Type"] = "NN on rule"
+            l += 1
+
+            sigma2_ratio_df.iloc[l]["Sigma2 ratio"] = gessaman_estimate / noise - 1
+            sigma2_ratio_df.iloc[l]["% of points"] = round(k / n * 100, 2)
+            sigma2_ratio_df.iloc[l]["Type"] = "Gessaman"
+            l += 1
+
+            sigma2_ratio_df.iloc[l]["Sigma2 ratio"] = neigh_estimator / noise - 1
+            sigma2_ratio_df.iloc[l]["% of points"] = round(k / n * 100, 2)
+            sigma2_ratio_df.iloc[l]["Type"] = "NN on sample"
+            l += 1
+
+        sigma2_ratio = [s / noise - 1 for s in sigma2_estimates]
+        sigma2_ratio_g_df.iloc[i] = sigma2_ratio
         x_values = [k / n * 100 for k in k_list]
         plt.plot(x_values, sigma2_ratio, color="b", linestyle="--")
 
@@ -154,7 +192,7 @@ def do_graph(n, noise, step, nb_simu, data_type, d=1):
     fig = plt.figure(figsize=(25, 17))
     plt.plot(
         x_values,
-        sigma2_ratio_df.mean(0).values,
+        sigma2_ratio_g_df.mean(0).values,
         color="black",
         label="Average Sigma2 Ratio",
         linestyle="-",
@@ -178,7 +216,7 @@ def do_graph(n, noise, step, nb_simu, data_type, d=1):
 
     fig = plt.figure(figsize=(25, 17))
     plt.plot(
-        sigma2_ratio_df.mean(0).values,
+        sigma2_ratio_g_df.mean(0).values,
         color="black",
         label="Average Sigma2 Ratio",
         linestyle="-",
@@ -187,8 +225,11 @@ def do_graph(n, noise, step, nb_simu, data_type, d=1):
         y=np.mean(nn_estimator_list) / noise - 1, color="r", label="Average 1NN ratio"
     )
     plt.axhline(y=0, color="b", linestyle=":")
-    sigma2_ratio_df.columns = [round(x, 1) for x in x_values]
-    sns.boxplot(data=sigma2_ratio_df, dodge=False)
+    sigma2_ratio_g_df.columns = [round(x, 1) for x in x_values]
+    sns.boxplot(data=sigma2_ratio_g_df, dodge=False)
+
+    sigma2_ratio_g_df.columns = [round(x, 1) for x in x_values]
+    sns.boxplot(data=sigma2_ratio_g_df, dodge=False)
 
     plt.xlabel("% of points in each cell", fontsize=20)
     plt.ylabel("Sigma estimation ratio", fontsize=20)
@@ -220,37 +261,98 @@ def do_graph(n, noise, step, nb_simu, data_type, d=1):
     )
     plt.close(fig)
 
+    alpha = d / (2 * (d + 2))
+    cov_min = n ** -alpha
+    cov_min *= 100
+
+    alpha = 1 / 2
+    th_min = n ** -alpha
+    th_min *= 100
+
+    temp = sigma2_ratio_df.loc[sigma2_ratio_df["Type"] == "Gessaman"][
+        ["Sigma2 ratio", "% of points"]
+    ].astype(float)
+    m = temp.groupby("% of points")["Sigma2 ratio"].median()
+
+    temp = sigma2_ratio_df.loc[sigma2_ratio_df["Type"] == "NN on sample"][
+        ["Sigma2 ratio", "% of points"]
+    ].astype(float)
+    m2 = temp.groupby("% of points")["Sigma2 ratio"].median()
+    q1 = temp.groupby("% of points")["Sigma2 ratio"].quantile(0.25)
+    q3 = temp.groupby("% of points")["Sigma2 ratio"].quantile(0.75)
+
+    fig = plt.figure(figsize=(25, 17))
+    sns.boxplot(x="% of points", y="Sigma2 ratio", hue="Type", data=sigma2_ratio_df)
+    plt.xlabel("% of points in each cell", fontsize=20)
+    plt.ylabel("Sigma2 ratio", fontsize=20)
+    plt.xticks(fontsize=10, rotation=45)
+    plt.yticks(fontsize=10)
+    plt.title(title, fontsize=20)
+    plt.legend(loc="upper left", fontsize=15)
+    plt.axhline(y=0, color="r", linestyle=":")
+    plt.axvline(x=cov_min, color="r", linestyle=":")
+    plt.plot(m.values, "b--", linewidth=1)
+    # plt.show()
+    fig.savefig(
+        f"/home/vmargot/Documents/Jussieu/{data_type}_{n}_sigma2ratio",
+        format="svg",
+        dpi=300,
+    )
+    plt.close(fig)
+
+    sigma2_ratio_df = sigma2_ratio_df.loc[sigma2_ratio_df["Type"] == "Gessaman"]
+    fig = plt.figure(figsize=(25, 17))
+    sns.boxplot(x="% of points", y="Sigma2 ratio", hue="Type", data=sigma2_ratio_df)
+    plt.axhline(y=0, color="k", linestyle=":")
+    plt.axvline(x=cov_min, color="r", linestyle=":", label="a = d/(2(d+2))")
+    plt.axvline(x=th_min, color="g", linestyle=":", label="a = 1/2")
+    plt.plot(m.values, "b--", linewidth=1, label="Gessaman median")
+    plt.plot(m2.values, "--", linewidth=1, color="orange", label="1-NN median")
+    plt.plot(q1.values, ".", linewidth=1, color="orange")
+    plt.plot(q3.values, ".", linewidth=1, color="orange")
+    plt.xlabel("% of points in each cell", fontsize=20)
+    plt.ylabel("Sigma2 ratio", fontsize=20)
+    plt.xticks(fontsize=10, rotation=45)
+    plt.yticks(fontsize=10)
+    plt.title(title, fontsize=20)
+    plt.legend(loc="upper left", fontsize=15)
+    # plt.show()
+    fig.savefig(
+        f"/home/vmargot/Documents/Jussieu/{data_type}_{n}_sigma2ratio_zoom",
+        format="svg",
+        dpi=300,
+    )
+    plt.close(fig)
+
+    del_activation_files()
+
 
 if __name__ == "__main__":
-    nb_simu = 50
-    step = 0.02
-    # The noise is chosen to have a signal / noise ratio > 2
+    nb_simu = 5
+    step = 0.01
+    n_list = [1125, 2500, 5000, 10000]  # , 20000]
 
-    noise = 0.05
-    n_list = [1125, 2500, 5000, 10000, 20000]
-    for n in n_list:
-        do_graph(n, noise, step, nb_simu, "sigmoid")
+    # The noise is chosen to have a signal / noise ratio > 2
+    # noise = 0.05
+    # for n in n_list:
+    #     do_graph(n, noise, step, nb_simu, "sigmoid")
 
     d = 5
     noise = 0.3
-    n_list = [1125, 2500, 5000, 10000, 20000]
     for n in n_list:
         do_graph(n, noise, step, nb_simu, "rulefit", d)
 
     d = 3
     noise = 1.0
-    n_list = [1125, 2500, 5000, 10000, 20000]
     for n in n_list:
         do_graph(n, noise, step, nb_simu, "flag", d)
 
     d = 3
     noise = 1.2
-    n_list = [1125, 2500, 5000, 10000, 20000]
     for n in n_list:
         do_graph(n, noise, step, nb_simu, "diag", d)
 
     d = 3
     noise = 1.5
-    n_list = [1125, 2500, 5000, 10000, 20000]
     for n in n_list:
         do_graph(n, noise, step, nb_simu, "circle", d)

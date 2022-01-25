@@ -9,6 +9,7 @@ from joblib import Parallel, delayed
 from ruleskit import Rule, RuleSet, RegressionRule, Activation
 from .cell import Cell
 from ruleskit import HyperrectangleCondition
+from .nn_estimator import calc_1nn_noise_estimator
 
 Rule.LOCAL_ACTIVATION = False
 
@@ -44,7 +45,9 @@ def conditional_mean(activation: Union[np.ndarray, None], y: np.ndarray) -> floa
         if isinstance(activation, np.ndarray):
             y_conditional = np.extract(activation, y)
         else:
-            raise TypeError("'activation' in conditional_mean must be None or a np.ndarray")
+            raise TypeError(
+                "'activation' in conditional_mean must be None or a np.ndarray"
+            )
         if len(y_conditional) > 0:
             return float(np.nanmean(y_conditional))
     else:
@@ -138,25 +141,32 @@ def get_conditional_bins(
     if col_id < x.shape[1]:
         bins = np.array(mquantiles(x[:, col_id], prob=prob, axis=0))
         for i in range(1, len(bins)):
-            if bins[i] == max(x[:, col_id]):
-                bmaxs[row_id, col_id] = np.Inf
-            else:
-                bmaxs[row_id, col_id] = bins[i]
+            try:
+                if bins[i] >= max(x[:, col_id]):
+                    bmaxs[row_id, col_id] = np.Inf
+                else:
+                    bmaxs[row_id, col_id] = bins[i]
 
-            if bins[i - 1] == min(x[:, col_id]):
-                bmins[row_id, col_id] = -np.Inf
-            else:
-                bmins[row_id, col_id] = bins[i - 1]
-            if i == len(bins) - 1 or bins[i - 1] == bins[i]:
-                new_x = x[(bins[i - 1] <= x[:, col_id]) & (x[:, col_id] <= bins[i]), :]
-            else:
-                new_x = x[(bins[i - 1] <= x[:, col_id]) & (x[:, col_id] < bins[i]), :]
-            bmaxs, bmins, row_id = get_conditional_bins(
-                new_x, prob, col_id + 1, row_id, bmaxs, bmins
-            )
-            if row_id < bmins.shape[0]:
-                bmaxs[row_id, :col_id] = bmaxs[row_id - 1, :col_id]
-                bmins[row_id, :col_id] = bmins[row_id - 1, :col_id]
+                if bins[i - 1] <= min(x[:, col_id]):
+                    bmins[row_id, col_id] = -np.Inf
+                else:
+                    bmins[row_id, col_id] = bins[i - 1]
+                if i == len(bins) - 1 or bins[i - 1] == bins[i]:
+                    new_x = x[
+                        (bins[i - 1] <= x[:, col_id]) & (x[:, col_id] <= bins[i]), :
+                    ]
+                else:
+                    new_x = x[
+                        (bins[i - 1] <= x[:, col_id]) & (x[:, col_id] < bins[i]), :
+                    ]
+                bmaxs, bmins, row_id = get_conditional_bins(
+                    new_x, prob, col_id + 1, row_id, bmaxs, bmins
+                )
+                if row_id < bmins.shape[0]:
+                    bmaxs[row_id, :col_id] = bmaxs[row_id - 1, :col_id]
+                    bmins[row_id, :col_id] = bmins[row_id - 1, :col_id]
+            except:
+                pass
     else:
         row_id += 1
     return bmaxs, bmins, row_id
@@ -210,6 +220,10 @@ def get_partition_rs(x, y, nb_dims, nb_cells, features_index):
         )
         rule = RegressionRule(condition)
         rule.fit(x, y)
+        nn_estimate = get_nn_estimate_from_rule(rule, x, y)
+
+        setattr(rule, "_nn_estimate", nn_estimate)
+        # rule.__setattr__('nn_estimate', nn_estimate)
         rs += rule
 
     return rs, (features_index, inter_variance(rs))
@@ -303,7 +317,9 @@ def select(rs: RuleSet, gamma: float, selected_rs: RuleSet = None) -> (int, Rule
     while selected_rs.coverage < 1 and i < nb_rules:
         new_rules = rs[i]
         # noinspection PyProtectedMember
-        utests = [union_test(new_rules, rule._activation, gamma) for rule in selected_rs]
+        utests = [
+            union_test(new_rules, rule._activation, gamma) for rule in selected_rs
+        ]
         if all(utests) and union_test(new_rules, selected_rs._activation, gamma):
             selected_rs += new_rules
             # old_criterion = new_criterion
@@ -314,17 +330,26 @@ def select(rs: RuleSet, gamma: float, selected_rs: RuleSet = None) -> (int, Rule
     return rg_add, selected_rs
 
 
-def predict(significant_rules: RuleSet, insignificant_rules: RuleSet, xs: np.ndarray, y_train: np.ndarray, nb_jobs: int = 2) -> (np.ndarray, np.ndarray):
+def predict(
+    significant_rules: RuleSet,
+    insignificant_rules: RuleSet,
+    xs: np.ndarray,
+    y_train: np.ndarray,
+    nb_jobs: int = 2,
+) -> (np.ndarray, np.ndarray):
     max_func = np.vectorize(max)
 
     if len(significant_rules) > 0:
         # noinspection PyProtectedMember
-        significant_union_train = reduce(operator.add, [rule._activation for rule in significant_rules]).raw
+        significant_union_train = reduce(
+            operator.add, [rule._activation for rule in significant_rules]
+        ).raw
 
         significant_act_train = [rule.activation for rule in significant_rules]
         significant_act_train = np.array(significant_act_train)
         significant_act_test = Parallel(n_jobs=nb_jobs, backend="multiprocessing")(
-            delayed(eval_activation)(rule, xs)for rule in significant_rules)
+            delayed(eval_activation)(rule, xs) for rule in significant_rules
+        )
         significant_act_test = np.array(significant_act_test).T
 
         significant_no_act_test = np.logical_not(significant_act_test)
@@ -338,12 +363,19 @@ def predict(significant_rules: RuleSet, insignificant_rules: RuleSet, xs: np.nda
 
         # Activation of the intersection of all activated rules at each row
         intersection_activation = np.dot(significant_act_test, significant_act_train)
-        intersection_activation = np.array([np.equal(act, nb_rules) for act, nb_rules in
-                                            zip(intersection_activation, nb_rules_active)], dtype="int")
+        intersection_activation = np.array(
+            [
+                np.equal(act, nb_rules)
+                for act, nb_rules in zip(intersection_activation, nb_rules_active)
+            ],
+            dtype="int",
+        )
 
         # Calculation of the binary vector for cells of the partition et each row
         significant_cells = (intersection_activation - no_activation_union) > 0
-        no_prediction_points = (significant_cells.sum(axis=1) == 0) & (significant_act_test.sum(axis=1) != 0)
+        no_prediction_points = (significant_cells.sum(axis=1) == 0) & (
+            significant_act_test.sum(axis=1) != 0
+        )
 
     else:
         significant_cells = np.zeros(shape=(xs.shape[0], len(y_train)), dtype="bool")
@@ -358,7 +390,8 @@ def predict(significant_rules: RuleSet, insignificant_rules: RuleSet, xs: np.nda
         insignificant_act_train = max_func(insignificant_act_train, 0)
 
         insignificant_act_test = Parallel(n_jobs=nb_jobs, backend="multiprocessing")(
-            delayed(eval_activation)(rule, xs) for rule in insignificant_rules)
+            delayed(eval_activation)(rule, xs) for rule in insignificant_rules
+        )
         insignificant_act_test = np.array(insignificant_act_test).T
 
         insignificant_no_act_test = np.logical_not(insignificant_act_test)
@@ -371,9 +404,16 @@ def predict(significant_rules: RuleSet, insignificant_rules: RuleSet, xs: np.nda
         no_activation_union = np.array(no_activation_union, dtype="int")
 
         # Activation of the intersection of all activated rules at each row
-        intersection_activation = np.dot(insignificant_act_test, insignificant_act_train)
-        intersection_activation = np.array([np.equal(act, nb_rules) for act, nb_rules in
-                                            zip(intersection_activation, nb_rules_active)], dtype="int",)
+        intersection_activation = np.dot(
+            insignificant_act_test, insignificant_act_train
+        )
+        intersection_activation = np.array(
+            [
+                np.equal(act, nb_rules)
+                for act, nb_rules in zip(intersection_activation, nb_rules_active)
+            ],
+            dtype="int",
+        )
 
         # Calculation of the binary vector for cells of the partition et each row
         insignificant_cells = (intersection_activation - no_activation_union) > 0
@@ -387,9 +427,18 @@ def predict(significant_rules: RuleSet, insignificant_rules: RuleSet, xs: np.nda
     # Calculation of the conditional expectation in each cell
     cells = insignificant_cells ^ significant_cells
     prediction_vector = Parallel(n_jobs=nb_jobs, backend="multiprocessing")(
-        delayed(eval_cell)(act, y_train) for act in cells)
+        delayed(eval_cell)(act, y_train) for act in cells
+    )
     prediction_vector = np.array(prediction_vector)
     prediction_vector[no_prediction_points] = np.nan
     prediction_vector[prediction_vector == 0] = no_rule_prediction
 
     return np.array(prediction_vector), no_prediction_points
+
+
+def get_nn_estimate_from_rule(rule: Rule, X, y):
+    activation = rule.activation
+    features = rule.condition.features_indexes
+    sub_x = np.extract(activation, X[:, features])
+    sub_y = np.extract(activation, y)
+    return calc_1nn_noise_estimator(sub_x, sub_y)

@@ -15,9 +15,7 @@ from gessaman.gessaman import Gessaman
 
 
 def make_y(x, sigma, th_min=-0.4, th_max=0.4, val=2):
-    y = [-val if x_val <= th_min else
-         0.0 if x_val <= th_max else
-         val for x_val in x]
+    y = [-val if x_val <= th_min else 0.0 if x_val <= th_max else val for x_val in x]
     y += np.random.normal(0, sigma, len(y))
     return np.array(y)
 
@@ -50,8 +48,10 @@ def circle_data(X, noise, val):
 
 def hyperrectangle_data(X, noise, val):
     y = np.zeros(X.shape[0])
-    cond_list = [HyperrectangleCondition([0, 1], bmins=[-0.9, -0.9], bmaxs=[-0.1, -0.1]),
-                 HyperrectangleCondition([0, 1], bmins=[0.2, 0.2], bmaxs=[1.0, 1.0])]
+    cond_list = [
+        HyperrectangleCondition([0, 1], bmins=[-0.9, -0.9], bmaxs=[-0.1, -0.1]),
+        HyperrectangleCondition([0, 1], bmins=[0.2, 0.2], bmaxs=[1.0, 1.0]),
+    ]
     vals = [val, -val]
     for condition, v in zip(cond_list, vals):
         y += v * condition.evaluate(X).raw
@@ -106,16 +106,13 @@ regressors = [
 # X += np.random.normal(0, noise, X.shape)
 # linearly_separable = (X, y)
 
-datasets = [
-    linear_data,
-    linear_data2,
-    circle_data,
-    hyperrectangle_data
-]
+datasets = [linear_data, linear_data2, circle_data, hyperrectangle_data]
 
 np.random.seed(42)
 
-fig, axes = plt.subplots(nrows=len(datasets), ncols=len(regressors) + 1, figsize=(27, 15))
+fig, axes = plt.subplots(
+    nrows=len(datasets), ncols=len(regressors) + 1, figsize=(27, 15)
+)
 i = 0
 # iterate over datasets
 for ds_cnt, func in enumerate(datasets):
@@ -127,7 +124,9 @@ for ds_cnt, func in enumerate(datasets):
     # preprocess dataset, split into training and test part
     X, y = func(X, noise, val=val)
     print(np.mean(y))
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.3, random_state=42
+    )
 
     x_min, x_max = X[:, 0].min() - 0.01, X[:, 0].max() + 0.01
     y_min, y_max = X[:, 1].min() - 0.01, X[:, 1].max() + 0.01
@@ -140,7 +139,9 @@ for ds_cnt, func in enumerate(datasets):
     # Plot the training points
     ax.scatter(X_train[:, 0], X_train[:, 1], s=20, c=y_train, cmap=cm, edgecolors="k")
     # and testing points
-    ax.scatter(X_test[:, 0], X_test[:, 1], s=20, c=y_test, cmap=cm, alpha=0.6, edgecolors="k")
+    ax.scatter(
+        X_test[:, 0], X_test[:, 1], s=20, c=y_test, cmap=cm, alpha=0.6, edgecolors="k"
+    )
     ax.set_xlim(xx.min(), xx.max())
     ax.set_ylim(yy.min(), yy.max())
     ax.set_xticks(())
@@ -155,8 +156,10 @@ for ds_cnt, func in enumerate(datasets):
             score = clf.score(X_test, y_test)
         else:
             pred, _ = clf.predict(X_test, y_train)
-            if name == 'Gessaman':
-                print("sigma 2 estimation:", min([rule.std ** 2 for rule in clf.ruleset]))
+            if name == "Gessaman":
+                print(
+                    "sigma 2 estimation:", min([rule.std ** 2 for rule in clf.ruleset])
+                )
                 sub_y = np.extract(np.isfinite(pred), y_test)
                 sub_pred = np.extract(np.isfinite(pred), pred)
                 score = r2_score(sub_y, sub_pred)
@@ -169,7 +172,7 @@ for ds_cnt, func in enumerate(datasets):
         elif hasattr(clf, "predict_proba"):
             Z = clf.predict_proba(np.c_[xx.ravel(), yy.ravel()])[:, 1]
         else:
-            if name == 'Gessaman':
+            if name == "Gessaman":
                 Z, _ = clf.predict(np.c_[xx.ravel(), yy.ravel()], y_train)
             else:
                 Z = clf.predict(np.c_[xx.ravel(), yy.ravel()])
@@ -177,9 +180,25 @@ for ds_cnt, func in enumerate(datasets):
         ax = axes.ravel()[i]
 
         # Plot also the training points
-        im = ax.scatter(X_train[:, 0], X_train[:, 1], s=20, c=y_train, cmap=cm, edgecolors="k", alpha=0.6)
+        im = ax.scatter(
+            X_train[:, 0],
+            X_train[:, 1],
+            s=20,
+            c=y_train,
+            cmap=cm,
+            edgecolors="k",
+            alpha=0.6,
+        )
         # and testing points
-        ax.scatter(X_test[:, 0], X_test[:, 1], s=20, c=y_test, cmap=cm, edgecolors="k", alpha=0.3)
+        ax.scatter(
+            X_test[:, 0],
+            X_test[:, 1],
+            s=20,
+            c=y_test,
+            cmap=cm,
+            edgecolors="k",
+            alpha=0.3,
+        )
 
         # Put the result into a color plot
         Z = Z.reshape(xx.shape)
@@ -191,7 +210,13 @@ for ds_cnt, func in enumerate(datasets):
         ax.set_yticks(())
         if ds_cnt == 0:
             ax.set_title(name)
-        ax.text(xx.max() - 0.01, yy.min() + 0.01, ("%.2f" % score).lstrip("0"), size=15, horizontalalignment="right")
+        ax.text(
+            xx.max() - 0.01,
+            yy.min() + 0.01,
+            ("%.2f" % score).lstrip("0"),
+            size=15,
+            horizontalalignment="right",
+        )
         i += 1
 
 plt.colorbar(im, ax=axes.ravel())

@@ -49,7 +49,7 @@ if __name__ == "__main__":
     alpha = None
 
     print("")
-    print('Flag data simulation')
+    print("Flag data simulation")
 
     nCols = 2
     h = 0.05
@@ -69,24 +69,23 @@ if __name__ == "__main__":
     # pred = np.nan_to_num(pred)
     # print("Simulation: ", r2_score(y_test, pred))
     # print("Simulation EY2:", np.mean(y ** 2))
-    print(f'Mean of Y2: {np.mean(y ** 2)}')
-    print(f'True sigma2: {noise ** 2}')
-    print("Gessamen estimator:", min([rule.std**2 for rule in g.ruleset]))
+    print(f"Mean of Y2: {np.mean(y ** 2)}")
+    print(f"True sigma2: {noise ** 2}")
+    print("Gessamen estimator:", min([rule.std ** 2 for rule in g.ruleset]))
     neigh_estimator = nn_estimator.calc_1nn_noise_estimator(X, y)
     print("1NeighborsRegressor estimator:", neigh_estimator)
     # Simulation: 0.6945311888168184
     # Simulation sigma: 0.7174451651251278
 
     print("")
-    print('Simplified RuleFit data simulation')
+    print("Simplified RuleFit data simulation")
     # Designing of training data
     nCols = 5
 
     X = np.random.randint(10, size=(n, nCols))
     X = X / 10.0
 
-    y_true = (0.8 * np.exp(-2 * (X[:, 0] - X[:, 1]))
-              + 2 * np.sin(math.pi * X[:, 2]) ** 2)
+    y_true = 0.8 * np.exp(-2 * (X[:, 0] - X[:, 1])) + 2 * np.sin(math.pi * X[:, 2]) ** 2
     y = y_true + np.random.normal(0, noise, n)
 
     g = Gessaman(alpha=alpha, nb_jobs=-1)
@@ -95,18 +94,18 @@ if __name__ == "__main__":
     # print("Simulation % of bad points: ", sum(bad_points) / len(y_test))
     # pred = np.nan_to_num(pred)
     # print("Simulation: ", r2_score(y_test, pred))
-    print(f'Mean of Y2: {np.mean(y ** 2)}')
-    print(f'True sigma2: {noise ** 2}')
-    print("Gessamen estimator:", min([rule.std**2 for rule in g.ruleset]))
+    print(f"Mean of Y2: {np.mean(y ** 2)}")
+    print(f"True sigma2: {noise ** 2}")
+    print("Gessamen estimator:", min([rule.std ** 2 for rule in g.ruleset]))
     neigh_estimator = nn_estimator.calc_1nn_noise_estimator(X, y)
     print("1NeighborsRegressor estimator:", neigh_estimator)
 
-    print('')
-    print('Sigmoid data simulation')
+    print("")
+    print("Sigmoid data simulation")
 
     X = np.array([[1 / n * i + 0.1] for i in range(0, n)])
     # Y = np.sqrt(X * (1 - X)) * np.sin((2 * math.pi * 1.05) / (X + .05)) + 0.5
-    Y = 1 / X * np.sin((2 * math.pi * 1.05) / (X + .05)) + 0.5
+    Y = 1 / X * np.sin((2 * math.pi * 1.05) / (X + 0.05)) + 0.5
     # Y = np.sin((2 * math.pi * 1.05) / (X + .05)) + 0.5
 
     Y = Y.flatten()
@@ -114,12 +113,12 @@ if __name__ == "__main__":
 
     g = Gessaman(alpha=alpha, nb_jobs=4, verbose=False)
     g.fit(X, Y)
-    noise_estimators = [rule.std**2 for rule in g.ruleset]
+    noise_estimators = [rule.std ** 2 for rule in g.ruleset]
     gessaman_estimator = min(noise_estimators)
 
     neigh_estimator = nn_estimator.calc_1nn_noise_estimator(X, Y)
 
-    print(f'Mean of Y2: {np.mean(Y**2)}')
-    print(f'True sigma2: {noise**2}')
-    print(f'Gessamen estimator: {gessaman_estimator}')
-    print(f'1NeighborsRegressor estimator: {neigh_estimator}')
+    print(f"Mean of Y2: {np.mean(Y**2)}")
+    print(f"True sigma2: {noise**2}")
+    print(f"Gessamen estimator: {gessaman_estimator}")
+    print(f"1NeighborsRegressor estimator: {neigh_estimator}")

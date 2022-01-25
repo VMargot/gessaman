@@ -13,8 +13,14 @@ from .utils.cell import BaseCell
 class Gessaman:
     """ """
 
-    def __init__(self, alpha: Union[float, None] = None, k: Union[int, None] = None,
-                 gamma: float = 0.8, nb_jobs: int = -1, verbose: bool = True):
+    def __init__(
+        self,
+        alpha: Union[float, None] = None,
+        k: Union[int, None] = None,
+        gamma: float = 0.8,
+        nb_jobs: int = -1,
+        verbose: bool = True,
+    ):
         BaseCell.instances = []
         self.verbose = verbose
 
@@ -26,7 +32,7 @@ class Gessaman:
 
         self._alpha = alpha
         self._gamma = gamma
-        self._k= k
+        self._k = k
         if nb_jobs == -1 or nb_jobs > cpu_count():
             self._nbjobs = cpu_count()
         else:
@@ -172,7 +178,9 @@ class Gessaman:
     #     bins = np.vstack((x[:, col].min(axis=0), bins, x[:, col].max(axis=0)))
     #     return bins
 
-    def get_rules(self, x: np.ndarray, y: np.ndarray, nb_dims: int, rs: RuleSet) -> RuleSet:
+    def get_rules(
+        self, x: np.ndarray, y: np.ndarray, nb_dims: int, rs: RuleSet
+    ) -> RuleSet:
         feats = list(range(self.d))
         nb_cells = self.nb_cells
         # print('Number of cells of the partition:', nb_cells)
@@ -183,7 +191,8 @@ class Gessaman:
 
         rep = Parallel(n_jobs=self._nbjobs, backend="multiprocessing")(
             delayed(f.get_partition_rs)(x, y, nb_dims, nb_cells, features_index)
-            for features_index in features_index_list)  # tqdm.tqdm(features_index_list))
+            for features_index in features_index_list
+        )  # tqdm.tqdm(features_index_list))
 
         self.partition_bvar += [r[1] for r in rep]
         rs += reduce(operator.add, [r[0] for r in rep])
@@ -211,7 +220,9 @@ class Gessaman:
         if self.k is None:
             self.nb_cells = int(self.n ** self.alpha)
         else:
-            assert self.k <= self.n, 'The number of points in cells is greater than the number of observation!'
+            assert (
+                self.k <= self.n
+            ), "The number of points in cells is greater than the number of observation!"
             self.nb_cells = int(self.n / self.k)
 
         self.nb_dims = min(self.d, int(np.log(self.n) / (2 * np.log(2)) - 1))
@@ -234,7 +245,11 @@ class Gessaman:
         if self.sigma2 is None:
             self.sigma2 = min([rule.std ** 2 for rule in self.ruleset])
 
-        self.selected_rs, self.selected_significant_rs, self.selected_insignificant_rs = self.select_rules(y.mean())
+        (
+            self.selected_rs,
+            self.selected_significant_rs,
+            self.selected_insignificant_rs,
+        ) = self.select_rules(y.mean())
 
     def select_rules(self, ymean: float):
         """
@@ -249,12 +264,18 @@ class Gessaman:
         rs = self.ruleset
 
         # Selection of significant rules
-        significant_rules = list(filter(lambda rule: f.significant_test(rule, ymean, sigma2, beta), rs))
+        significant_rules = list(
+            filter(lambda rule: f.significant_test(rule, ymean, sigma2, beta), rs)
+        )
         if len(significant_rules) > 0:
             # [setattr(rule, "significant", True) for rule in significant_rules]
             if self.verbose:
-                print(f"Number of rules after significant test: {len(significant_rules)}")
-            sorted_significant = sorted(significant_rules, key=lambda x: x.coverage, reverse=True)
+                print(
+                    f"Number of rules after significant test: {len(significant_rules)}"
+                )
+            sorted_significant = sorted(
+                significant_rules, key=lambda x: x.coverage, reverse=True
+            )
             significant_rs = RuleSet(list(sorted_significant))
 
             rg_add, selected_rs = f.select(significant_rs, gamma)
@@ -268,16 +289,26 @@ class Gessaman:
 
         # Add insignificant rules to the current selection set of rules
         if selected_rs is None or selected_rs.coverage < 1:
-            insignificant_list = filter(lambda rule: f.insignificant_test(rule, sigma2, epsilon), rs)
-            insignificant_list = list(filter(lambda rule: rule not in significant_rules, insignificant_list))
+            insignificant_list = filter(
+                lambda rule: f.insignificant_test(rule, sigma2, epsilon), rs
+            )
+            insignificant_list = list(
+                filter(lambda rule: rule not in significant_rules, insignificant_list)
+            )
             if len(list(insignificant_list)) > 0:
                 # [setattr(rule, "significant", False) for rule in insignificant_list]
                 if self.verbose:
-                    print(f"Number rules after insignificant test: {len(insignificant_list)}")
-                insignificant_list = sorted(insignificant_list, key=lambda x: x.std, reverse=False)
+                    print(
+                        f"Number rules after insignificant test: {len(insignificant_list)}"
+                    )
+                insignificant_list = sorted(
+                    insignificant_list, key=lambda x: x.std, reverse=False
+                )
                 insignificant_rs = RuleSet(list(insignificant_list))
                 rg_add, selected_rs = f.select(insignificant_rs, gamma, selected_rs)
-                insignificant_rules = filter(lambda rl: rl not in selected_significant_rs, selected_rs)
+                insignificant_rules = filter(
+                    lambda rl: rl not in selected_significant_rs, selected_rs
+                )
                 selected_insignificant_rs = RuleSet(list(insignificant_rules))
                 if self.verbose:
                     print(f"Number insignificant rules added: {rg_add}")
@@ -342,10 +373,17 @@ class Gessaman:
         selected_significant_rs = self.selected_significant_rs
         selected_insignificant_rs = self.selected_insignificant_rs
 
-        prediction_vector, no_predictions = f.predict(selected_significant_rs, selected_insignificant_rs,
-                                                      xs, y_train, nb_jobs=self._nbjobs)
+        prediction_vector, no_predictions = f.predict(
+            selected_significant_rs,
+            selected_insignificant_rs,
+            xs,
+            y_train,
+            nb_jobs=self._nbjobs,
+        )
         if self.verbose:
-            print(f"There are {round(sum(no_predictions) / xs.shape[0] * 100, 2)}% of observations without prediction.")
+            print(
+                f"There are {round(sum(no_predictions) / xs.shape[0] * 100, 2)}% of observations without prediction."
+            )
         return prediction_vector, no_predictions
 
     # def predict(self, x: np.ndarray) -> np.ndarray:
