@@ -219,12 +219,14 @@ def get_partition_rs(x, y, nb_dims, nb_cells, features_index):
             sort=False,
         )
         rule = RegressionRule(condition)
-        rule.fit(x, y)
-        nn_estimate = get_nn_estimate_from_rule(rule, x, y)
+        rule.calc_activation(x)
+        if sum(rule.activation) > 0:
+            rule.fit(xs=x, y=y)
+            nn_estimate = get_nn_estimate_from_rule(rule, x, y)
 
-        setattr(rule, "_nn_estimate", nn_estimate)
-        # rule.__setattr__('nn_estimate', nn_estimate)
-        rs += rule
+            setattr(rule, "_nn_estimate", nn_estimate)
+            # rule.__setattr__('nn_estimate', nn_estimate)
+            rs += rule
 
     return rs, (features_index, inter_variance(rs))
 

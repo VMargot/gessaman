@@ -10,6 +10,31 @@ from .utils import futils as f
 from .utils.cell import BaseCell
 
 
+def get_significant_rs(rs, ymean, sigma2, beta):
+    significant_rules = list(
+        filter(lambda rule: f.significant_test(rule, ymean, sigma2, beta), rs)
+    )
+    sorted_significant = sorted(
+        significant_rules, key=lambda x: x.coverage, reverse=True
+    )
+    significant_rs = RuleSet(list(sorted_significant))
+    return significant_rs
+
+
+def get_insignificant_rs(rs, sigma2, epsilon, significant_rules=RuleSet([])):
+    insignificant_list = filter(
+        lambda rule: f.insignificant_test(rule, sigma2, epsilon), rs
+    )
+    insignificant_list = list(
+        filter(lambda rule: rule not in significant_rules, insignificant_list)
+    )
+    insignificant_list = sorted(
+        insignificant_list, key=lambda x: x.std, reverse=False
+    )
+    insignificant_rs = RuleSet(list(insignificant_list))
+    return insignificant_rs
+
+
 class Gessaman:
     """ """
 
@@ -40,9 +65,12 @@ class Gessaman:
 
         self._nb_cells = None
         self._nb_dims = None
-        self._ruleset = RuleSet([])
-        self._selected_rs = RuleSet([])
         self._partition_bvar = []
+
+        self.ruleset = RuleSet([])
+        self.selected_rs = RuleSet([])
+        self.significant_rs = RuleSet([])
+        self.insignificant_rs = RuleSet([])
 
     @property
     def n(self) -> int:
@@ -83,14 +111,6 @@ class Gessaman:
     @property
     def nb_cells(self) -> int:
         return self._nb_cells
-
-    @property
-    def ruleset(self) -> Union[RuleSet, None]:
-        return self._ruleset
-
-    @property
-    def selected_rs(self) -> Union[RuleSet, None]:
-        return self._selected_rs
 
     @property
     def partition_bvar(self) -> List[List]:
@@ -135,14 +155,6 @@ class Gessaman:
     @nb_cells.setter
     def nb_cells(self, value: int):
         self._nb_cells = value
-
-    @ruleset.setter
-    def ruleset(self, value: RuleSet):
-        self._ruleset = value
-
-    @selected_rs.setter
-    def selected_rs(self, value: RuleSet):
-        self._selected_rs = value
 
     @partition_bvar.setter
     def partition_bvar(self, value: List[List]):
@@ -207,7 +219,7 @@ class Gessaman:
 
         return rs
 
-    def fit(self, x: np.ndarray, y: np.ndarray):
+    def fit(self, x: np.ndarray, y: np.ndarray, do_selection: True):
         # --------------
         # DESIGNING PART
         # --------------
@@ -226,6 +238,8 @@ class Gessaman:
             self.nb_cells = int(self.n / self.k)
 
         self.nb_dims = min(self.d, int(np.log(self.n) / (2 * np.log(2)) - 1))
+        self.beta = 1.0 / pow(self.d, 1.0 / 4 - self.alpha / 2.0)
+        self.epsilon = self.beta * np.std(y)
         # self.nb_dims = min(self.d, 2)
 
         if self.verbose:
@@ -234,82 +248,49 @@ class Gessaman:
             self.ruleset = self.get_rules(x, y, lg, self.ruleset)
         if self.verbose:
             print(f"Number of rules: {len(self.ruleset)}")
+        if self.sigma2 is None:
+            self.sigma2 = min([rule.std ** 2 for rule in self.ruleset])
+
+        self.significant_rs = get_significant_rs(self.ruleset, y.mean(), self.sigma2, self.beta)
+        self.insignificant_rs = get_insignificant_rs(self.ruleset, self.sigma2, self.epsilon, self.significant_rs)
 
         # --------------
         # SELECTION PART
         # --------------
-        if self.verbose:
-            print("----- Selection ------")
-        self.beta = 1.0 / pow(self.d, 1.0 / 4 - self.alpha / 2.0)
-        self.epsilon = self.beta * np.std(y)
-        if self.sigma2 is None:
-            self.sigma2 = min([rule.std ** 2 for rule in self.ruleset])
+        if do_selection:
+            if self.verbose:
+                print("----- Selection ------")
+            (self.selected_rs,
+             self.selected_significant_rs,
+             self.selected_insignificant_rs)\
+                = self.select_rules(self.significant_rs, self.insignificant_rs)
 
-        (
-            self.selected_rs,
-            self.selected_significant_rs,
-            self.selected_insignificant_rs,
-        ) = self.select_rules(y.mean())
-
-    def select_rules(self, ymean: float):
+    def select_rules(self, significant_rs, insignificant_rs):
         """
         Returns a subset of a given ruleset.
         This subset minimizes the empirical contrast on the learning set
         """
         selected_rs = RuleSet([])
-        beta = self.beta
-        epsilon = self.epsilon
-        sigma2 = self.sigma2
         gamma = self.gamma
-        rs = self.ruleset
 
         # Selection of significant rules
-        significant_rules = list(
-            filter(lambda rule: f.significant_test(rule, ymean, sigma2, beta), rs)
-        )
-        if len(significant_rules) > 0:
-            # [setattr(rule, "significant", True) for rule in significant_rules]
-            if self.verbose:
-                print(
-                    f"Number of rules after significant test: {len(significant_rules)}"
-                )
-            sorted_significant = sorted(
-                significant_rules, key=lambda x: x.coverage, reverse=True
-            )
-            significant_rs = RuleSet(list(sorted_significant))
-
+        if len(significant_rs) > 0:
             rg_add, selected_rs = f.select(significant_rs, gamma)
             selected_significant_rs = copy.copy(selected_rs)
             if self.verbose:
                 print(f"Number of selected significant rules: {rg_add}")
 
         else:
+            selected_significant_rs = RuleSet([])
             if self.verbose:
                 print("No significant rules selected!")
 
         # Add insignificant rules to the current selection set of rules
         if selected_rs is None or selected_rs.coverage < 1:
-            insignificant_list = filter(
-                lambda rule: f.insignificant_test(rule, sigma2, epsilon), rs
-            )
-            insignificant_list = list(
-                filter(lambda rule: rule not in significant_rules, insignificant_list)
-            )
-            if len(list(insignificant_list)) > 0:
-                # [setattr(rule, "significant", False) for rule in insignificant_list]
-                if self.verbose:
-                    print(
-                        f"Number rules after insignificant test: {len(insignificant_list)}"
-                    )
-                insignificant_list = sorted(
-                    insignificant_list, key=lambda x: x.std, reverse=False
-                )
-                insignificant_rs = RuleSet(list(insignificant_list))
+            if len(list(insignificant_rs)) > 0:
                 rg_add, selected_rs = f.select(insignificant_rs, gamma, selected_rs)
-                insignificant_rules = filter(
-                    lambda rl: rl not in selected_significant_rs, selected_rs
-                )
-                selected_insignificant_rs = RuleSet(list(insignificant_rules))
+                insignificant_rules_added = list(filter(lambda r: r not in selected_significant_rs, selected_rs))
+                selected_insignificant_rs = RuleSet(insignificant_rules_added)
                 if self.verbose:
                     print(f"Number insignificant rules added: {rg_add}")
             else:
